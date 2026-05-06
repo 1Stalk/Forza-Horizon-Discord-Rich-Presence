@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::os::windows::process::CommandExt;
 use sysinfo::System;
-use tauri::{AppHandle, Manager, Emitter};
+use tauri::{Manager, Emitter};
 use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::menu::{Menu, MenuItem};
 use tokio::sync::broadcast;
@@ -18,10 +18,9 @@ use tokio::sync::broadcast;
 use database::CarDatabase;
 use discord::DiscordService;
 use modules::{fh4::FH4Module, fh5::FH5Module, GameModule};
-use telemetry::TelemetryServer;
+use telemetry::{TelemetryServer, TelemetryData};
 
 struct AppState {
-    db: Arc<Mutex<CarDatabase>>,
     modules: Vec<Arc<dyn GameModule>>,
 }
 
@@ -184,7 +183,6 @@ fn main() {
             ];
 
             app.manage(AppState {
-                db: db.clone(),
                 modules: modules.clone(),
             });
 
@@ -195,7 +193,7 @@ fn main() {
                 let mut sys = System::new();
                 let server = Arc::new(TelemetryServer::new());
                 
-                let (tx, mut rx) = broadcast::channel(16);
+                let mut _telemetry_tx: Option<broadcast::Sender<TelemetryData>> = None;
                 let mut is_game_running = false;
                 let mut active_discord: Option<Arc<DiscordService>> = None;
 
@@ -220,11 +218,13 @@ fn main() {
                             is_game_running = true;
                             println!("Game started: {}", module.game_name());
                             
+                            let (tx, _) = broadcast::channel::<TelemetryData>(16);
                             let discord_service = Arc::new(DiscordService::new(module.discord_client_id()));
                             let _ = discord_service.connect();
                             active_discord = Some(discord_service.clone());
                             
                             server.start(9909, tx.clone());
+                            _telemetry_tx = Some(tx.clone());
 
                             let _ = app_handle_clone.emit("status_update", serde_json::json!({
                                 "status": "connected",
@@ -254,6 +254,7 @@ fn main() {
                         println!("Game stopped.");
                         
                         server.stop();
+                        _telemetry_tx = None; // Drops the sender, terminating the updater loop
                         if let Some(discord) = active_discord.take() {
                             discord.disconnect();
                         }

@@ -30,6 +30,7 @@ impl DiscordService {
     pub fn disconnect(&self) {
         let mut lock = self.client.lock().unwrap();
         if let Some(mut client) = lock.take() {
+            let _ = client.clear_activity();
             let _ = client.close();
         }
     }
