@@ -32,3 +32,4 @@ Windows blocks UWP apps from sending data to local programs. If you play the Mic
 - **Set & Forget:** Enable "Run on Startup" and "Launch Minimized" to let the app run silently in your system tray.
 - **SimHub:** Fully compatible with SimHub and other software that uses your forza telemetry. Just use same port which uses SimHub.
 - **OpenXBL:** Update frequency is optimized to preserve your free API limits.
+- **100% Safe:** No game file modifications or memory hooking/reading involved.
