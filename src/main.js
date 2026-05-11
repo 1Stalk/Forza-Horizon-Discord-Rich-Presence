@@ -176,43 +176,76 @@ document.addEventListener("DOMContentLoaded", () => {
       statusDetail.textContent = details || "Launch game to broadcast";
       
       const xblText = document.getElementById("xbl-status-text");
-      xblText.textContent = "Waiting for game...";
-      xblText.style.color = "inherit";
+      xblText.textContent = xbl_status || "Connecting...";
+      
+      if (xbl_status && (xbl_status.includes("Error:") || xbl_status.includes("error:"))) {
+        xblText.style.color = "var(--error-color)";
+      } else {
+        xblText.style.color = "inherit";
+      }
     }
   }).then(() => {
     // Load XBL Api Key
     const xblKeyInput = document.getElementById("xbl-api-key");
-    const saveXblBtn = document.getElementById("save-xbl-btn");
+    const xblSavedIndicator = document.getElementById("xbl-saved-indicator");
     let savedXblKey = localStorage.getItem("xbl_api_key") || "";
     xblKeyInput.value = savedXblKey;
 
-    if (savedXblKey) {
-      document.getElementById("xbl-status-text").textContent = "Key loaded";
-    }
-
-    saveXblBtn.addEventListener("click", async () => {
-      saveXblBtn.disabled = true;
+    xblKeyInput.addEventListener("blur", async () => {
       const key = xblKeyInput.value.trim();
-      localStorage.setItem("xbl_api_key", key);
+      const currentSavedKey = localStorage.getItem("xbl_api_key") || "";
       
-      try {
-        await invoke("update_xbl_settings", { apiKey: key });
-        saveXblBtn.textContent = "Saved!";
-        document.getElementById("xbl-status-text").textContent = key ? "Key saved" : "Disconnected";
-      } catch (err) {
-        console.error(err);
-        saveXblBtn.textContent = "Error";
+      if (key !== currentSavedKey) {
+        localStorage.setItem("xbl_api_key", key);
+        try {
+          await invoke("update_xbl_settings", { apiKey: key });
+          
+          // Show indicator
+          xblSavedIndicator.classList.add("visible");
+          setTimeout(() => {
+            xblSavedIndicator.classList.remove("visible");
+          }, 2000);
+          
+          if (!key) {
+            document.getElementById("xbl-status-text").textContent = "Disconnected";
+          }
+        } catch (err) {
+          console.error("Failed to auto-save XBL key:", err);
+        }
       }
+    });
+
+    // Port Settings
+    const portInput = document.getElementById("telemetry-port");
+    const portSavedIndicator = document.getElementById("port-saved-indicator");
+    let savedPort = localStorage.getItem("telemetry_port") || "9909";
+    portInput.value = savedPort;
+
+    portInput.addEventListener("blur", async () => {
+      const portVal = parseInt(portInput.value) || 9909;
+      const currentSavedPort = localStorage.getItem("telemetry_port") || "9909";
       
-      setTimeout(() => {
-        saveXblBtn.textContent = "Save";
-        saveXblBtn.disabled = false;
-      }, 2000);
+      // Only save if changed
+      if (portVal.toString() !== currentSavedPort) {
+        localStorage.setItem("telemetry_port", portVal.toString());
+        try {
+          await invoke("update_telemetry_port", { port: portVal });
+          
+          // Show indicator
+          portSavedIndicator.classList.add("visible");
+          setTimeout(() => {
+            portSavedIndicator.classList.remove("visible");
+          }, 2000);
+        } catch (err) {
+          console.error("Failed to auto-save port:", err);
+        }
+      }
     });
 
     // Tell backend we are ready to receive initial status and send initial key
     invoke("ui_ready").catch(console.error);
     invoke("update_xbl_settings", { apiKey: savedXblKey }).catch(console.error);
+    invoke("update_telemetry_port", { port: parseInt(savedPort) }).catch(console.error);
   });
 
   // Handle external links

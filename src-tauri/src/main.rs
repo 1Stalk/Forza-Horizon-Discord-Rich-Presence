@@ -25,6 +25,7 @@ struct AppState {
     modules: Vec<Arc<dyn GameModule>>,
     active_game: Arc<Mutex<Option<String>>>,
     xbl_api_key: Arc<Mutex<String>>,
+    telemetry_port: Arc<Mutex<u16>>,
 }
 
 #[tauri::command]
@@ -144,6 +145,11 @@ fn update_xbl_settings(api_key: String, state: tauri::State<'_, AppState>) {
 }
 
 #[tauri::command]
+fn update_telemetry_port(port: u16, state: tauri::State<'_, AppState>) {
+    *state.telemetry_port.lock().unwrap() = port;
+}
+
+#[tauri::command]
 fn open_url(url: String) {
     let _ = std::process::Command::new("cmd")
         .args(&["/c", "start", "", &url])
@@ -254,16 +260,19 @@ fn main() {
 
             let active_game = Arc::new(Mutex::new(None));
             let xbl_api_key = Arc::new(Mutex::new(String::new()));
+            let telemetry_port = Arc::new(Mutex::new(9909));
             
             app.manage(AppState {
                 modules: modules.clone(),
                 active_game: active_game.clone(),
                 xbl_api_key: xbl_api_key.clone(),
+                telemetry_port: telemetry_port.clone(),
             });
 
             // Start background monitor task
             let app_handle_clone = app_handle.clone();
             let xbl_api_key_clone = xbl_api_key.clone();
+            let telemetry_port_clone = telemetry_port.clone();
             
             tauri::async_runtime::spawn(async move {
                 let mut sys = System::new();
@@ -300,7 +309,8 @@ fn main() {
                             let _ = discord_service.connect();
                             active_discord = Some(discord_service.clone());
                             
-                            server.start(9909, tx.clone());
+                            let port = *telemetry_port_clone.lock().unwrap();
+                            server.start(port, tx.clone());
                             _telemetry_tx = Some(tx.clone());
 
                             let _ = app_handle_clone.emit("status_update", serde_json::json!({
@@ -329,17 +339,36 @@ fn main() {
                                     if last_poll.elapsed() >= Duration::from_secs(26) {
                                         let key = key_clone.lock().unwrap().clone();
                                         if !key.is_empty() {
-                                            if let Some(status) = xbl::poll_xbl_presence(&key).await {
-                                                *xbl_status_clone_loop.lock().unwrap() = Some(status.clone());
-                                                let _ = app_handle_clone2.emit("status_update", serde_json::json!({
-                                                    "status": "connected",
-                                                    "game": module_name,
-                                                    "details": "Broadcasting presence...",
-                                                    "xbl_status": status
-                                                }));
+                                            match xbl::poll_xbl_presence(&key).await {
+                                                Ok(status) => {
+                                                    *xbl_status_clone_loop.lock().unwrap() = Some(status.clone());
+                                                    let _ = app_handle_clone2.emit("status_update", serde_json::json!({
+                                                        "status": "connected",
+                                                        "game": module_name,
+                                                        "details": "Broadcasting presence...",
+                                                        "xbl_status": status
+                                                    }));
+                                                },
+                                                Err(err) => {
+                                                    if err != "Disconnected" {
+                                                        *xbl_status_clone_loop.lock().unwrap() = Some(err.clone());
+                                                        let _ = app_handle_clone2.emit("status_update", serde_json::json!({
+                                                            "status": "connected",
+                                                            "game": module_name,
+                                                            "details": "Broadcasting presence...",
+                                                            "xbl_status": err
+                                                        }));
+                                                    }
+                                                }
                                             }
                                         } else {
                                             *xbl_status_clone_loop.lock().unwrap() = None;
+                                            let _ = app_handle_clone2.emit("status_update", serde_json::json!({
+                                                "status": "connected",
+                                                "game": module_name,
+                                                "details": "Broadcasting presence...",
+                                                "xbl_status": "Disconnected"
+                                            }));
                                         }
                                         last_poll = tokio::time::Instant::now();
                                     }
@@ -413,7 +442,8 @@ fn main() {
             show_window,
             ui_ready,
             update_xbl_settings,
-            open_url
+            open_url,
+            update_telemetry_port
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

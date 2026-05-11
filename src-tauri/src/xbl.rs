@@ -1,16 +1,16 @@
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE};
 use serde_json::Value;
 
-pub async fn poll_xbl_presence(api_key: &str) -> Option<String> {
+pub async fn poll_xbl_presence(api_key: &str) -> Result<String, String> {
     if api_key.trim().is_empty() {
-        return None;
+        return Err("Disconnected".to_string());
     }
 
     let mut headers = HeaderMap::new();
     if let Ok(val) = HeaderValue::from_str(api_key) {
         headers.insert("X-Authorization", val);
     } else {
-        return None;
+        return Err("Error: Invalid API Key format".to_string());
     }
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
     headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US"));
@@ -20,13 +20,19 @@ pub async fn poll_xbl_presence(api_key: &str) -> Option<String> {
         .headers(headers)
         .send()
         .await
-        .ok()?;
+        .map_err(|e| format!("Network error: {}", e))?;
 
+    if res.status() == 401 {
+        return Err("Error: Invalid API Key".to_string());
+    }
+    if res.status() == 429 {
+        return Err("Error: API Rate Limit".to_string());
+    }
     if !res.status().is_success() {
-        return None;
+        return Err(format!("API error: {}", res.status()));
     }
 
-    let json: Value = res.json().await.ok()?;
+    let json: Value = res.json().await.map_err(|_| "Failed to parse API response".to_string())?;
     
     // Extract rich presence from the API response
     if let Some(devices) = json["content"]["devices"].as_array() {
@@ -37,27 +43,16 @@ pub async fn poll_xbl_presence(api_key: &str) -> Option<String> {
                         if let Some(rp) = activity.get("richPresence") {
                             if let Some(rp_str) = rp.as_str() {
                                 if !rp_str.is_empty() {
-                                    return Some(rp_str.to_string());
+                                    return Ok(rp_str.to_string());
                                 }
                             }
                         }
                     }
-                    
-                    // Some games put state directly under `state` or `name`
-                    // We only care about richPresence mostly, but we can fallback to name if it represents an activity
-                    // (But usually name is just the game name, so we skip it to avoid redundancy)
                 }
             }
         }
     }
 
-    // If no rich presence found, just return a generic state if it's not empty
-    if let Some(state) = json["content"]["state"].as_str() {
-        if state != "Offline" {
-            // We only really want to return something if we got a valid rich presence.
-            // Returning "Online" is not useful.
-        }
-    }
-
-    None
+    // If no rich presence found, return a generic but positive state
+    Ok("Connected (No Activity)".to_string())
 }

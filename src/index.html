@@ -36,18 +36,36 @@
           </div>
         </section>
 
-        <!-- OpenXBL Integration -->
-        <section class="card xbl-card">
-          <div class="xbl-header">
-            <h2>OpenXBL Integration</h2>
-            <span class="status-text" id="xbl-status-text">Disconnected</span>
-          </div>
-          <div class="xbl-input-group">
-            <input type="password" id="xbl-api-key" placeholder="Enter OpenXBL API Key" class="text-input" />
-            <button id="save-xbl-btn" class="primary-btn small-btn">Save</button>
-          </div>
-          <p class="status-detail">Get your API key at <a href="https://xbl.io" target="_blank">xbl.io</a></p>
-        </section>
+        <!-- Middle Row: OpenXBL & Port -->
+        <div class="middle-row">
+          <section class="card xbl-card">
+            <div class="xbl-header">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h2>OpenXBL</h2>
+                <span id="xbl-saved-indicator" class="saved-indicator">saved</span>
+              </div>
+              <span class="status-text" id="xbl-status-text">Disconnected</span>
+            </div>
+            <div class="xbl-input-group">
+              <input type="password" id="xbl-api-key" placeholder="Enter OpenXBL API Key" class="text-input" />
+            </div>
+            <p class="status-detail">Get your API key at <a href="https://xbl.io" target="_blank">xbl.io</a></p>
+          </section>
+
+          <section class="card port-card">
+            <div class="port-header">
+              <h2>Telemetry</h2>
+              <span id="port-saved-indicator" class="saved-indicator">saved</span>
+            </div>
+            <div class="port-inputs-stack">
+              <input type="text" value="127.0.0.1" class="text-input" readonly
+                style="opacity: 0.5; font-size: 0.8rem; cursor: default;" title="Use this IP in Forza settings" />
+              <div class="port-input-group">
+                <input type="number" id="telemetry-port" value="9909" class="text-input" placeholder="Port" />
+              </div>
+            </div>
+          </section>
+        </div>
 
         <!-- Bottom: Actions Row -->
         <div class="actions-row">
