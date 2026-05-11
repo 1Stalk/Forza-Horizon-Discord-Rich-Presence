@@ -1,6 +1,8 @@
 # Forza Horizon Discord Rich Presence
 
-Works with **Forza Horizon 4** and **Forza Horizon 5** 
+Works with **Forza Horizon 4**
+
+**Forza Horizon 5** WIP
 
 **Forza Horizon 6** coming soon (needs proper database with cars)
 
