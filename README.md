@@ -1,17 +1,12 @@
 # Forza Horizon Discord Rich Presence
 
-Works with **Forza Horizon 4**
+**Forza Horizon 6** ⚠️ Coming soon (needs proper database with cars)
 
-**Forza Horizon 5** WIP
+**Forza Horizon 5** ✅ Supported
 
-**Forza Horizon 6** coming soon (needs proper database with cars)
+**Forza Horizon 4** ✅ Supported
 
-<p align="center">
-  <img src="assets/settings.png" width="70%" alt="Application Interface" />
-</p>
-<p align="center">
-  <img src="assets/fh4status.png" width="45%" alt="Discord Status Example" />
-</p>
+<img src="assets/fh4status.png" width="45%" alt="Discord Status Example" />
 
 ## Setup Guide
 
@@ -21,7 +16,8 @@ Works with **Forza Horizon 4**
    - **Data Out:** `ON`
    - **Data Out IP Address:** `127.0.0.1`
    - **Data Out IP Port:** `9909`
-4. Return to the open world (driving). Your Discord status will update automatically!
+4. Create api key at [xbl.io](https://xbl.io/)
+5. Paste api key into OpenXBL Input field
 
 ## Microsoft Store / Xbox App Users
 
@@ -34,3 +30,4 @@ Windows blocks UWP apps from sending data to local programs. If you play the Mic
 
 - **Car Database Updates:** Click "Update Cars" to automatically fetch the latest car list from this repository.
 - **Set & Forget:** Enable "Run on Startup" and "Launch Minimized" to let the app run silently in your system tray.
+- **SimHub:** Fully compatible with SimHub and other software that uses your forza telemetry.
