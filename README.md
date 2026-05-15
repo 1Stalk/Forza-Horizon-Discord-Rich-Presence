@@ -1,6 +1,6 @@
 # Forza Horizon Discord Rich Presence
 
-**Forza Horizon 6** ⚠️ Coming soon (needs proper database with cars)
+**Forza Horizon 6** ✅ Supported ⚠️ Needs a proper database with cars. Use without telemetry for now
 
 **Forza Horizon 5** ✅ Supported
 
