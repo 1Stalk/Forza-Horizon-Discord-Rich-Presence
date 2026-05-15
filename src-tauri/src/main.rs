@@ -252,6 +252,28 @@ fn show_window(window: tauri::Window) {
     let _ = window.set_focus();
 }
 
+#[tauri::command]
+async fn report_car_name(car_id: i32, car_name: String, game: String) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let url = "https://forza-rpc-backend.vercel.app/api/report";
+    
+    let res = client.post(url)
+        .json(&serde_json::json!({
+            "car_id": car_id,
+            "car_name": car_name,
+            "game": game
+        }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if res.status().is_success() {
+        Ok("Report sent! Thanks.".into())
+    } else {
+        Err(format!("Server returned: {}", res.status()))
+    }
+}
+
 fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let show_i = MenuItem::with_id(app, "show", "Settings", true, None::<&str>)?;
@@ -552,7 +574,8 @@ fn main() {
             update_xbl_settings,
             open_url,
             update_telemetry_port,
-            update_relay_ports
+            update_relay_ports,
+            report_car_name
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

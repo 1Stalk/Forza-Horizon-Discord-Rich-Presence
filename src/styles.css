@@ -507,19 +507,58 @@ button:hover:not(:disabled) {
   padding-bottom: 0.5rem;
 }
 
-.unknown-car-warning {
-  color: var(--error-color);
-  font-weight: 700;
-  font-size: 0.8rem;
-  height: 1.1rem;
-  line-height: 1.1rem;
-  margin-bottom: 0;
+#unknown-car-section {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0 0.25rem;
+  margin-bottom: 0.4rem;
   transition: opacity 0.2s ease;
 }
 
-.unknown-car-warning.invisible {
+#unknown-car-section.invisible {
   opacity: 0;
   pointer-events: none;
+  height: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+}
+
+.unknown-car-warning {
+  color: var(--error-color);
+  font-weight: 700;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.report-form {
+  display: flex;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.mini-input {
+  height: 26px !important;
+  font-size: 0.75rem !important;
+  padding: 0 0.5rem !important;
+  flex: 1;
+}
+
+.mini-btn {
+  height: 26px !important;
+  width: auto !important;
+  padding: 0 0.75rem !important;
+  font-size: 0.72rem !important;
+  background: var(--bg-elevated) !important;
+  white-space: nowrap;
+}
+
+.mini-btn:hover {
+  background: var(--accent-green) !important;
+  color: white;
 }
 
 /* Gear button */

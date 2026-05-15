@@ -402,15 +402,57 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Listen for unknown car warnings
+  // Listen for unknown car warnings & reporting
+  const unknownCarSection = document.getElementById("unknown-car-section");
   const unknownCarWarning = document.getElementById("unknown-car-warning");
+  const carNameInput = document.getElementById("car-name-input");
+  const sendReportBtn = document.getElementById("send-report-btn");
+
+  let currentUnknownCar = null;
+  let currentGameName = "Forza Horizon";
+
+  // Capture game name from status updates
+  listen("status_update", (event) => {
+    if (event.payload.game) {
+      currentGameName = event.payload.game;
+    }
+  });
+
   listen("unknown_car", (event) => {
     const data = event.payload;
     if (data) {
-      unknownCarWarning.textContent = `Unknown car detected: ID ${data.id} (${data.class} ${data.pi}). Please report this!`;
-      unknownCarWarning.classList.remove("invisible");
+      currentUnknownCar = data;
+      unknownCarWarning.textContent = `Unknown car: ID ${data.id}`;
+      unknownCarSection.classList.remove("invisible");
     } else {
-      unknownCarWarning.classList.add("invisible");
+      unknownCarSection.classList.add("invisible");
+    }
+  });
+
+  sendReportBtn.addEventListener("click", async () => {
+    const name = carNameInput.value.trim();
+    if (!name || !currentUnknownCar) return;
+
+    sendReportBtn.disabled = true;
+    sendReportBtn.textContent = "Waiting...";
+
+    try {
+      const msg = await invoke("report_car_name", {
+        carId: currentUnknownCar.id,
+        carName: name,
+        game: currentGameName
+      });
+      carNameInput.value = "";
+      unknownCarWarning.textContent = msg;
+      setTimeout(() => {
+        unknownCarSection.classList.add("invisible");
+      }, 2000);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to send report: " + err);
+    } finally {
+      sendReportBtn.disabled = false;
+      sendReportBtn.textContent = "Report";
     }
   });
 
