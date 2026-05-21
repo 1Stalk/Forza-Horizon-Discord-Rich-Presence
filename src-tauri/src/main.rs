@@ -9,6 +9,7 @@ mod xbl;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use sysinfo::System;
 use tauri::{Manager, Emitter};
@@ -42,101 +43,115 @@ struct AppState {
 
 #[tauri::command]
 fn fix_uwp_isolation(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let mut needs_uac = false;
+    #[cfg(target_os = "windows")]
+    {
+        let mut needs_uac = false;
 
-    // First try direct execution (works if app is already running as Admin)
-    for module in &state.modules {
-        let package_name = module.uwp_package_name();
-        if package_name.is_empty() { continue; }
+        for module in &state.modules {
+            let package_name = module.uwp_package_name();
+            if package_name.is_empty() { continue; }
 
-        let cmd_str = format!("CheckNetIsolation LoopbackExempt -a -n={}", package_name);
-        let status = std::process::Command::new("cmd")
-            .args(&["/c", &cmd_str])
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+            let cmd_str = format!("CheckNetIsolation LoopbackExempt -a -n={}", package_name);
+            let status = std::process::Command::new("cmd")
+                .args(&["/c", &cmd_str])
+                .creation_flags(0x08000000)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
 
-        if let Ok(exit_status) = status {
-            if !exit_status.success() {
+            if let Ok(exit_status) = status {
+                if !exit_status.success() {
+                    needs_uac = true;
+                    break;
+                }
+            } else {
                 needs_uac = true;
                 break;
             }
-        } else {
-            needs_uac = true;
-            break;
         }
-    }
 
-    if !needs_uac {
-        return Ok("Isolation fixed directly".into());
-    }
-
-    // Fallback to PowerShell UAC (Silent)
-    let mut script = String::new();
-    for module in &state.modules {
-        let package_name = module.uwp_package_name();
-        if package_name.is_empty() { continue; }
-        if !script.is_empty() {
-            script.push_str(" & ");
+        if !needs_uac {
+            return Ok("Isolation fixed directly".into());
         }
-        script.push_str(&format!("CheckNetIsolation LoopbackExempt -a -n={}", package_name));
+
+        let mut script = String::new();
+        for module in &state.modules {
+            let package_name = module.uwp_package_name();
+            if package_name.is_empty() { continue; }
+            if !script.is_empty() {
+                script.push_str(" & ");
+            }
+            script.push_str(&format!("CheckNetIsolation LoopbackExempt -a -n={}", package_name));
+        }
+
+        let status = std::process::Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle", "Hidden",
+                "-Command",
+                &format!("Start-Process -FilePath 'cmd.exe' -ArgumentList '/c {}' -Verb RunAs -Wait -WindowStyle Hidden", script)
+            ])
+            .creation_flags(0x08000000)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|e| e.to_string())?;
+
+        if !status.success() {
+            return Err("Failed to fix isolation (UAC denied or command failed)".into());
+        }
+
+        return Ok("Isolation fixed via UAC".into());
     }
 
-    let status = std::process::Command::new("powershell")
-        .args(&[
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle", "Hidden",
-            "-Command",
-            &format!("Start-Process -FilePath 'cmd.exe' -ArgumentList '/c {}' -Verb RunAs -Wait -WindowStyle Hidden", script)
-        ])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| e.to_string())?;
-
-    if !status.success() {
-        return Err("Failed to fix isolation (UAC denied or command failed)".into());
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = state;
+        Ok("Not required on Linux".into())
     }
-    
-    Ok("Isolation fixed via UAC".into())
 }
 
 #[tauri::command]
 async fn check_db_updates(app: tauri::AppHandle, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let msg = CarDatabase::check_for_updates(app.clone()).await?;
-    
-    // Reload database in memory after successful update
+
     let mut db = state.db.lock().unwrap();
     db.load(&app);
-    
+
     Ok(msg)
 }
 
 #[tauri::command]
 fn check_uwp_status(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let output = std::process::Command::new("CheckNetIsolation")
-        .arg("LoopbackExempt")
-        .arg("-s")
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output()
-        .map_err(|e: std::io::Error| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("CheckNetIsolation")
+            .arg("LoopbackExempt")
+            .arg("-s")
+            .creation_flags(0x08000000)
+            .output()
+            .map_err(|e: std::io::Error| e.to_string())?;
 
-    let output_str = String::from_utf8_lossy(&output.stdout).to_lowercase();
-    
-    // Check if ALL packages are exempt
-    for module in &state.modules {
-        let package_name = module.uwp_package_name().to_lowercase();
-        if package_name.is_empty() { continue; }
-        
-        if !output_str.contains(&package_name) {
-            return Ok(false); // At least one game needs fixing
+        let output_str = String::from_utf8_lossy(&output.stdout).to_lowercase();
+
+        for module in &state.modules {
+            let package_name = module.uwp_package_name().to_lowercase();
+            if package_name.is_empty() { continue; }
+
+            if !output_str.contains(&package_name) {
+                return Ok(false);
+            }
         }
+
+        return Ok(true);
     }
-    
-    Ok(true)
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = state;
+        Ok(true)
+    }
 }
 
 #[tauri::command]
@@ -201,51 +216,42 @@ fn relay_addrs(targets: &[RelayTarget]) -> Vec<String> {
 
 #[tauri::command]
 fn open_url(url: String) {
-    let _ = std::process::Command::new("cmd")
-        .args(&["/c", "start", "", &url])
-        .creation_flags(0x08000000)
-        .spawn();
-}
-
-#[tauri::command]
-fn toggle_autostart(enable: bool) -> Result<String, String> {
-    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_path_str = exe_path.to_str().unwrap_or_default();
-    
-    let key_path = r#"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"#;
-    let app_name = "forzarichpresence";
-
-    if enable {
-        let status = std::process::Command::new("reg")
-            .args(&["add", key_path, "/v", app_name, "/t", "REG_SZ", "/d", &format!("\"{}\"", exe_path_str), "/f"])
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("cmd")
+            .args(&["/c", "start", "", &url])
             .creation_flags(0x08000000)
-            .status()
-            .map_err(|e| e.to_string())?;
-        
-        if status.success() { Ok("Enabled".into()) } else { Err("Failed".into()) }
-    } else {
-        let status = std::process::Command::new("reg")
-            .args(&["delete", key_path, "/v", app_name, "/f"])
-            .creation_flags(0x08000000)
-            .status()
-            .map_err(|e| e.to_string())?;
-            
-        if status.success() { Ok("Disabled".into()) } else { Err("Failed".into()) }
+            .spawn();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn();
     }
 }
 
 #[tauri::command]
-fn is_autostart_enabled() -> Result<bool, String> {
-    let key_path = r#"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"#;
-    let app_name = "forzarichpresence";
-    
-    let output = std::process::Command::new("reg")
-        .args(&["query", key_path, "/v", app_name])
-        .creation_flags(0x08000000)
-        .output()
-        .map_err(|e: std::io::Error| e.to_string())?;
-        
-    Ok(output.status.success())
+fn toggle_autostart(enable: bool, app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let autostart_manager = app.autolaunch();
+    if enable {
+        autostart_manager.enable()
+            .map_err(|e| e.to_string())?;
+        Ok("Enabled".into())
+    } else {
+        autostart_manager.disable()
+            .map_err(|e| e.to_string())?;
+        Ok("Disabled".into())
+    }
+}
+
+#[tauri::command]
+fn is_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let autostart_manager = app.autolaunch();
+    autostart_manager.is_enabled()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -276,7 +282,7 @@ async fn report_car_name(
     // 2. Send report to Vercel
     let client = reqwest::Client::new();
     let url = "https://forza-rpc-backend.vercel.app/api/report";
-    
+
     let res = client.post(url)
         .json(&serde_json::json!({
             "car_id": car_id,
@@ -329,14 +335,24 @@ fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
         .setup(|app| {
             create_tray(app)?;
-            
+
             let app_handle = app.handle().clone();
-            
+
             let db = Arc::new(Mutex::new(CarDatabase::new(&app_handle)));
             let modules: Vec<Arc<dyn GameModule>> = vec![
                 Arc::new(FH4Module),
@@ -350,7 +366,7 @@ fn main() {
             let telemetry_server = Arc::new(TelemetryServer::new());
             let telemetry_tx: Arc<Mutex<Option<broadcast::Sender<TelemetryData>>>> = Arc::new(Mutex::new(None));
             let relay_targets: Arc<Mutex<Vec<RelayTarget>>> = Arc::new(Mutex::new(vec![]));
-            
+
             app.manage(AppState {
                 modules: modules.clone(),
                 active_game: active_game.clone(),
@@ -362,29 +378,42 @@ fn main() {
                 db: db.clone(),
             });
 
-            // Start background monitor task
             let app_handle_clone = app_handle.clone();
             let xbl_api_key_clone = xbl_api_key.clone();
             let telemetry_port_clone = telemetry_port.clone();
             let telemetry_server_clone = telemetry_server.clone();
             let telemetry_tx_clone = telemetry_tx.clone();
             let relay_targets_clone = relay_targets.clone();
-            
+
             tauri::async_runtime::spawn(async move {
                 let mut sys = System::new();
-                
+
                 let mut is_game_running = false;
                 let mut active_discord: Option<Arc<DiscordService>> = None;
                 let mut active_discord_stop: Option<tokio::sync::mpsc::Sender<()>> = None;
 
                 loop {
-                    sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::new());
-                    
+                    sys.refresh_processes_specifics(sysinfo::ProcessRefreshKind::new().with_exe(sysinfo::UpdateKind::Always).with_cmd(sysinfo::UpdateKind::Always));
+
                     let mut active_module: Option<Arc<dyn GameModule>> = None;
                     for module in &modules {
-                        let process_name = module.target_process_name();
+                        let process_name = module.target_process_name().to_lowercase();
                         for process in sys.processes().values() {
-                            if process.name().eq_ignore_ascii_case(process_name) {
+                            let name_match = process.name().to_string().to_lowercase().contains(&process_name)
+                                || process_name.contains(&process.name().to_string().to_lowercase());
+
+                            let exe_match = process.exe()
+                                .and_then(|p| p.file_name())
+                                .and_then(|n| n.to_str())
+                                .map(|n| n.to_lowercase() == process_name)
+                                .unwrap_or(false);
+
+                            let cmd_match = process.cmd().iter().any(|arg| {
+                                arg.to_string().to_lowercase().ends_with(&process_name)
+                            }) && !process.name().to_string().to_lowercase().contains("reaper")
+                              && !process.name().to_string().to_lowercase().contains("wrapper")
+                              && !process.name().to_string().to_lowercase().contains("launcher");
+                            if name_match || exe_match || cmd_match {
                                 active_module = Some(module.clone());
                                 break;
                             }
@@ -398,12 +427,12 @@ fn main() {
                             is_game_running = true;
                             *active_game.lock().unwrap() = Some(module.game_name().to_string());
                             println!("Game started: {}", module.game_name());
-                            
+
                             let (tx, _) = broadcast::channel::<TelemetryData>(16);
                             let discord_service = Arc::new(DiscordService::new(module.discord_client_id()));
                             let _ = discord_service.connect();
                             active_discord = Some(discord_service.clone());
-                            
+
                             let port = *telemetry_port_clone.lock().unwrap();
                             let addrs = relay_addrs(&relay_targets_clone.lock().unwrap());
                             telemetry_server_clone.start_with_relay(port, tx.clone(), addrs);
@@ -415,17 +444,17 @@ fn main() {
                                 "details": "Broadcasting presence...",
                                 "xbl_status": "Connecting..."
                             }));
-                            
+
                             let xbl_status = Arc::new(Mutex::new(None::<String>));
                             let xbl_status_clone_loop = xbl_status.clone();
                             let key_clone = xbl_api_key_clone.clone();
                             let app_handle_clone2 = app_handle_clone.clone();
                             let app_handle_clone3 = app_handle_clone.clone();
                             let module_name = module.game_name().to_string();
-                            
+
                             let (xbl_stop_tx, mut xbl_stop_rx) = tokio::sync::mpsc::channel::<()>(1);
                             let (discord_stop_tx, mut discord_stop_rx) = tokio::sync::mpsc::channel::<()>(1);
-                            
+
                             tauri::async_runtime::spawn(async move {
                                 let mut last_poll = tokio::time::Instant::now().checked_sub(Duration::from_secs(26)).unwrap();
                                 loop {
@@ -433,7 +462,7 @@ fn main() {
                                         _ = xbl_stop_rx.recv() => break,
                                         _ = tokio::time::sleep(Duration::from_millis(1000)) => {}
                                     }
-                                    
+
                                     if last_poll.elapsed() >= Duration::from_secs(26) {
                                         let key = key_clone.lock().unwrap().clone();
                                         if !key.is_empty() {
@@ -472,16 +501,16 @@ fn main() {
                                     }
                                 }
                             });
-                            
+
                             // Spawn Discord updater loop
                             let db_clone = db.clone();
                             let module_clone = module.clone();
                             let mut rx_clone = tx.subscribe();
-                            
+
                             tauri::async_runtime::spawn(async move {
                                 let mut last_update = tokio::time::Instant::now();
                                 // Dropping xbl_stop_tx when this loop exits will also stop the XBL poller
-                                let _stop_tx = xbl_stop_tx; 
+                                let _stop_tx = xbl_stop_tx;
                                 let mut last_telemetry: Option<TelemetryData> = None;
                                 loop {
                                     tokio::select! {
@@ -493,10 +522,8 @@ fn main() {
                                                     if last_update.elapsed() >= Duration::from_millis(1500) {
                                                         let db_lock = db_clone.lock().unwrap();
                                                         let xbl_lock = xbl_status.lock().unwrap();
-                                                        // Update Discord
                                                         discord_service.update_presence(last_telemetry.as_ref(), &db_lock, module_clone.as_ref(), xbl_lock.as_deref());
-                                                        
-                                                        // Emit UI update for unknown cars
+
                                                         if let Some(data) = last_telemetry.as_ref() {
                                                             if data.car_ordinal != 0 {
                                                                 if db_lock.get_car_name_opt(data.car_ordinal).is_none() {
@@ -506,11 +533,9 @@ fn main() {
                                                                         "pi": data.car_pi
                                                                     }));
                                                                 } else {
-                                                                    // Known car detected, clear warning
                                                                     let _ = app_handle_clone3.emit("unknown_car", serde_json::Value::Null);
                                                                 }
                                                             }
-                                                            // If car_ordinal == 0 (pause), we keep previous UI state
                                                         }
 
                                                         last_update = tokio::time::Instant::now();
@@ -524,8 +549,7 @@ fn main() {
                                             let db_lock = db_clone.lock().unwrap();
                                             let xbl_lock = xbl_status.lock().unwrap();
                                             discord_service.update_presence(last_telemetry.as_ref(), &db_lock, module_clone.as_ref(), xbl_lock.as_deref());
-                                            
-                                            // Handle unknown car in UI even during timeout
+
                                             if let Some(data) = last_telemetry.as_ref() {
                                                 if data.car_ordinal != 0 {
                                                     if db_lock.get_car_name_opt(data.car_ordinal).is_none() {
@@ -552,9 +576,9 @@ fn main() {
                         is_game_running = false;
                         *active_game.lock().unwrap() = None;
                         println!("Game stopped.");
-                        
+
                         let _ = app_handle_clone.emit("unknown_car", serde_json::Value::Null);
-                        
+
                         telemetry_server_clone.stop();
                         *telemetry_tx_clone.lock().unwrap() = None;
                         // Drop stop sender to signal the discord updater loop to exit
