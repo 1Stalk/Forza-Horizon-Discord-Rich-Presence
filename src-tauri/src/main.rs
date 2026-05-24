@@ -430,7 +430,9 @@ fn main() {
 
                             let (tx, _) = broadcast::channel::<TelemetryData>(16);
                             let discord_service = Arc::new(DiscordService::new(module.discord_client_id()));
-                            let _ = discord_service.connect();
+                            if let Err(e) = discord_service.connect() {
+                                println!("Failed to connect to Discord IPC: {}", e);
+                            }
                             active_discord = Some(discord_service.clone());
 
                             let port = *telemetry_port_clone.lock().unwrap();
